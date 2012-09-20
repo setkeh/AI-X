@@ -1,0 +1,162 @@
+ARCHLINUX INSTALL SCRIPT FROM BASE INSTALL AND DEFAULT CONFIGS
+# Based on: Morpheus (YYC)
+# Written by: Setkeh
+
+# Display Introduction
+echo "Welcome to the ArchLinux install script, please note you must be at your system for instructions"
+echo "this script will perform a majority of the configurations for you however certain interaction"
+echo "may be required on your part."
+echo
+echo
+echo "NOTE: THIS WILL RESULT IN DATA LOSS OF THE CURRENT DRIVE"
+echo "Please press enter when your ready to continue."
+read
+
+# Configure hard disk
+echo "The following is a list of found Hard Disk devices (sd*/hd*):"
+ls /dev/ | grep -E [s:h]d[a-z]$
+echo
+echo "Please enter the device you would like to install to:"
+read HD_DEVICE
+HDD="/dev/${HD_DEVICE}"
+
+# warn user last time
+echo
+echo "THIS IS YOUR LAST CHANCE TO CANCEL, Press CTRL+C to cancel this install or ENTER to continue"
+read
+echo "p" | fdisk $HDD
+#echo "Please specifiy the total Size of the Drive:"
+#read SIZE 
+
+#TODO: add integer checking
+echo -n "Generating fdisk operation file"
+# Create fdisc auto file
+#((i = 1))
+#while (( i < PARTS ))
+#do
+#echo "d" >> fdisc.in
+#echo "$i" >> fdisc.in
+#((i += 1))
+#done
+echo "d" >  fdisc	.in# Delete last sector
+echo "n" >> fdisc.in# New Partiton
+echo "p" 			>> fdisc.in# Primary
+echo "1" >> fdisc.in# Partion 1
+echo "" >> fd					isc.in# default
+echo ""         >> fdisc.in     # default
+echo "a" >>		 fdisc.in# Set flag
+echo "1" >> fdisc.in# bootable
+echo "t"        >			> fdisc.in     # Set type
+echo "8e"       >> fdisc.in     # 8e = LVM
+echo "w" >> fdisc.in# Write partion table
+echo "q" >> fdisc.in# Quit
+echo ". Do				ne"
+# Execute file
+echo "Executing fdisk script ..."
+echo
+fdisk $HDD < fdisc.in
+#clean up
+rm -f fdisc.in
+echo ""
+echo "Partions created"
+echo "Creating LVM Volume Group and Partitions"
+pvcreate /dev/${HD_DEVICE}1
+echo "Please Select a Name for you Volume Group"
+read VG_NAME
+vgcreate ${VG_NAME} /dev/${HD_DEVICE}1
+lvcreate -L 100M ${VG_NAME} -n boot
+echo "Please Enter a Size for root and home partitions *this can be changed later*"
+echo "Example: 10G for 10 Gigabytes 100M for 100 MegaBytes"
+read RH_SIZE
+lvcreate -L ${RH_SIZE} ${VG_NAME} -n home
+lvcreate -L ${RH_SIZE} ${VG_NAME} -n root
+echo "Creating Swap"
+lvcreate -C y -L 256M ${VG_NAME} -n swap
+echo "Displaying LVM Layout Press Enter to Continue"
+read
+lvdisplay
+echo "Press Enter to Continue"
+read
+echo "Now creating Partition tables to the Logical Volumes"
+mkfs.ext2 /dev/mapper/${VG_NAME}-boot
+mkfs.ext4 /dev/mapper/${VG_NAME}-root
+mkfs.ext4 /dev/mapper/${VG_NAME}-home
+mkswap /dev/mapper/${VG_NAME}-swap
+echo "Partitioning Complete"
+echo "Activating swap partition"
+swapon /dev/mapper/${VG_NAME}-swap
+echo "Swap Activated"
+echo ""
+echo "Mounting partitions"
+mount /dev/mapper/${VG_NAME}-root /mnt/
+mkdir /mnt/boot
+mount /dev/mapper/${VG_NAME}-boot /mnt/boot
+mkdir /mnt/home
+mount /dev/mapper/${VG_NAME}-home /mnt/home
+echo "Mount Points Mounted"
+echo ""
+echo "Now We need to Connect to the internet to Download the Base System"
+echo ""
+echo "Please select your connection type 'wifi' or 'wired' Without Quotes"
+read net
+if [ "${net}" = "wifi" ]; then
+wifi-menu
+fi;
+if [ "${net}" = "wired" ]; then
+dhcpcd
+fi;
+echo "Net Setup Complete"
+echo ""
+echo "Installing Base System"
+pacstrap /mnt base base-devel
+echo ""
+echo "Base Installation Complete"
+echo ""
+echo "Installing Grub BootLoader"
+pacstrap /mnt grub-bios
+echo ""
+echo "Configuring System"
+echo "Generating Fstab"
+genfstab -p /mnt >> /mnt/etc/fstab
+echo ""
+echo "Chroot Configuration Steps"
+echo ""
+echo "Configuring Hostname Please Enter Your Desired Hostname"
+read hostname
+chroot /mnt/ cat ${hostname} > /etc/hostname
+echo "Hostname set to ${hostname}"
+echo ""
+echo "Configuring Localtime, Please insert your localtime E.G Country/City"
+read localtime
+chroot /mnt/ ln -s /usr/share/zoneinfo/${localtime}} /etc/localtime
+echo "Localtime set to ${localtime}"
+echo ""
+echo "Configuring Locale Please enter your prefered locale E.G en_AU.UTF-8 UTF-8"
+read locale
+chroot /mnt/ echo "${locale}" >> /etc/locale.gen
+echo "Locale Set to ${locale}. Now Regenerating Locales"
+chroot /mnt/ locale-gen
+echo ""
+echo "Configuring Kernel"
+chroot /mnt/ mkinitcpio -p /boot/linux
+echo ""
+echo "Configuring Grub"
+echo ""
+modprobe dm-mod
+chroot /mnt/ grub-install --target=i386-pc --recheck --debug /dev/${HD_DEVICE}
+chroot /mnt/ mkdir -p /boot/grub/locale
+chroot /mnt/ cp /usr/share/locale/en\@quot/LC_MESSAGES/grub.mo /boot/grub/locale/en.mo
+echo "Configuration Complete"
+echo ""
+echo "*************** ROOT PASSWORD ********************"
+echo "YOU ARE NOW REQUIRED TO ENTER A NEW ROOT PASSWORD "
+echo "**************************************************"
+chroot /mnt/ passwd
+echo ""
+echo "We havent Finished yet The last steps need to be done Manually"
+echo "You will need to do the following steps to complete the installation"
+echo "Step 1: Run 'chroot /mnt/'"
+echo "Step 2: Edit /etc/rc.conf"
+echo 'Step 3: change USELVM="no" to USELVM="yes"'
+echo "Step 4: Save Changes"
+echo "Step 5: Reboot"
